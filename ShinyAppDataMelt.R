@@ -2,64 +2,93 @@
 # End result: want a table with time (years) on the X and solutes/ discharge on the y axis
 # colored by # of sites that have each solute/ discharge
 
+# Load libraries needed for script
+# install.packages("librarian")
+librarian::shelf(tidyverse, googledrive, purrr, readxl, supportR, dplyr, tidyr, ggplot2)
+
+# Clear environment
+rm(list = ls())
+
 ## originally this was linked to the google drive but that's not working right now
 setwd("/Users/sidneybush/Library/CloudStorage/Box-Box/Sidney_Bush/SiSyn")
 
-# Read in reference table
-chemQ <-read.csv("Site_Reference_Table.csv")
+# Read in dataset that has the stream names for the 201 sites
+sites200 <-read.csv("AllSiClusterData.csv")
+# check the length of this data set
+length(unique(sites200$Site))
 
-#remove variables not interested in ever including
-chemQ <- dplyr::select(chemQ, -c("LTER.x","Discharge_File_Name.x","Dataset","units", "value", "Qcms",
-                                 "Dataset", "Raw_Filename", "units", "LTER.y", "Discharge_File_Name.y"))
+# Read in master chemistry dataset
+chem_v1 <- read.csv("20240130_masterdata_chem.csv") %>%
+  # Fix some column names
+  dplyr::rename(Date = date) %>%
+  #put date in "date" format
+  dplyr::mutate(Date = as.Date(Date))
 
-colnames(chemQ) <-c("Date","Stream_Name","Discharge","Chemistry")
+# Drop any rows where date or variable/value is not included
+chem_v2 <- chem_v1 %>%
+  dplyr::filter(!is.na(Date) & !is.na(variable) & !is.na(value))
 
-# now we want to melt the variable column so that discharge data and chemistry solutes are in one column
-chemQ_melt <-melt(chemQ, id.vars = c("Date", "Stream_Name"))
+# Filter to only the 201 sites included in cluster dataset
+chemQ <- chem_v2 %>%
+  dplyr::filter(Stream_Name %in% sites200$Site)
 
-# change column names
-colnames(chemQ_melt) <-c("Date","Stream_Name","type","variable")
+# check the length of this data set
+length(unique(chemQ$Stream_Name)) # 194?! ABSOLUTE BAG OF PANTS
 
-chemQ_melt <- chemQ_melt %>%
-  dplyr::filter(!is.na(Date) & !is.na(variable))
+# remove variables not interested in ever including
+chemQ <- dplyr::select(chemQ, -c("LTER","Dataset", "units", "value", "Raw_Filename"))
 
-chemQ_melt$Date<-as.Date(chemQ_melt$Date) #format date as date
+# rename columns
+colnames(chemQ) <-c("Stream_Name","Date", "variable")
+
+# now combine all N (NO3, NOx) and P (PO4, SRP) species, change name to DOC
+# kinda dumb but I'm doing it this way
+
+chemQ$std_variable <- chemQ$variable
+chemQ <- chemQ %>%
+  mutate(std_variable = case_when(
+    str_detect(std_variable, "SRP") ~ "P",
+    str_detect(std_variable, "PO4") ~ "P",
+    str_detect(std_variable, "TP") ~ "P",
+    str_detect(std_variable, "TN") ~ "N",
+    str_detect(std_variable, "NO3") ~ "N",
+    str_detect(std_variable, "NOx") ~ "N",
+    str_detect(std_variable, "tot dissolved N") ~ "N",
+    str_detect(std_variable, "NHX") ~ "N",
+    str_detect(std_variable, "NH4") ~ "N",
+    str_detect(std_variable, "dissolved inorg N") ~ "N",
+    str_detect(std_variable, "dissolved org C") ~ "DOC",
+    TRUE ~ std_variable))
+
+# format date as date
+chemQ$Date<-as.Date(chemQ$Date) 
 
 # extract the year and convert to numeric format
-chemQ_melt$year <- as.numeric(format(chemQ_melt$Date, "%Y"))
+chemQ$year <- as.numeric(format(chemQ$Date, "%Y"))
 
-chemQ_melt$unique<-paste0(chemQ_melt$Stream_Name, chemQ_melt$year, chemQ_melt$variable) #create a column of "unique" values - type of sample and date collected
-chemQ_unique <-chemQ_melt[!duplicated(chemQ_melt$unique),] #remove all duplicated samples
+#create a column of "unique" values - stream name, type of sample, and year collected
+chemQ$unique<-paste0(chemQ$Stream_Name, chemQ$year, chemQ$std_variable)
 
-#remove variables not interested in ever including
-chemQ_unique <- dplyr::select(chemQ_unique, -c("Date","unique"))
+# remove all duplicated samples
+chemQ_unique <-chemQ[!duplicated(chemQ$unique),] 
+
+# there's one site for N that was collected in 1924 and its the only one, lets get that outta here
+chemQ_unique <- chemQ_unique %>%
+  filter(year > 1950)
 
 # get freq by year and by variable
-chemQ_final <- setDT(chemQ_unique)[, .(freq = .N) , by = c("year","variable")]
+chemQ_final <- setDT(chemQ_unique)[, .(freq = .N) , by = c("year","std_variable")]
 
-## Filter which variables we wanna use
-chemQ_final <- chemQ_final %>% filter(grepl("Q|DSi|Ca|Mg|NOx|SO4|PO4|TN|TP", variable))
+## Filter which variables we wanna use in our final plot
+chemQ_final <- chemQ_final %>% filter(grepl("DSi|Ca|Mg|N|SO4|P|Na|DOC", std_variable))
 
-## For plotting we need an actual datetime format, not just year as a number:
-# chemQ_final$year <- as.Date(chemQ_final$year,
-#                                    format = "%Y-%m-%d")
-
-chemQ_final_one<-subset(chemQ_final, chemQ_final$variable=="PO4")
-
-ggplot(chemQ_final, aes(x=year, y=variable))+
+ggplot(chemQ_final, aes(x=year, y=std_variable))+
+  labs(x=NULL, y = "Variable")+
   geom_line(aes(col=freq), lwd=15)+
-  
-
-options(scipen = 999)
-ggplot(chemQ_final, aes(x=year, y = variable, fill = freq))+
-  labs(x="Year", y=NULL)+
-  scale_fill_gradient(low = "lightblue", high = "darkblue")+
-  geom_bar(width=0.9, stat = "identity")+
-  #scale_x_datetime(labels = date_format("%Y"))+
-  scale_x_continuous(trans = "reverse")+
+  scale_color_gradient(low = "lightblue", high="darkblue")+
   theme_bw()+
-  theme(axis.text = element_text(size=14),
-        axis.title = element_text(size=16, face = "bold"))
+  theme(axis.text=element_text(size=16),
+        axis.title = element_text(size=16, face="bold"))
 
 # ## Export csv
-# write.csv(chemQ_final,file="shinyapp_chemQ_overview.csv")
+write.csv(chemQ_final,file="shinyapp_201_chem_sites_by_year.csv")
