@@ -82,6 +82,8 @@ chemQ_final <- setDT(chemQ_unique)[, .(freq = .N) , by = c("year","std_variable"
 ## Filter which variables we wanna use in our final plot
 chemQ_final <- chemQ_final %>% filter(grepl("DSi|Ca|Mg|N|SO4|P|Na|DOC", std_variable))
 
+chemQ_final <-setDF(chemQ_final)
+
 ggplot(chemQ_final, aes(x=year, y=std_variable))+
   labs(x=NULL, y = "Variable")+
   geom_line(aes(col=freq), lwd=15)+
