@@ -7,25 +7,30 @@ librarian::shelf(shiny, htmltools, tidyverse, leaflet, maps, rcartocolor, DT, gg
 #read in world map and lat/long of each site
 world_countries<-map_data('world')
 
-lat_long_sites<-read.csv("/Users/keirajohnson/Box Sync/Keira_Johnson/SiSyn/Sites_LatLongClimate.csv")
+lat_long_sites<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Sites_LatLongClimate.csv")
 
 #read in source data for table of drivers
-data_source_table<-read.csv("/Users/keirajohnson/Box Sync/Keira_Johnson/SiSyn/ShinyAppDataSourceTable.csv")
+data_source_table<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/ShinyAppDataSourceTable.csv")
 colnames(data_source_table)<-c("Variable", "Source", "Units", "Spatial Scale", "Temporal Scale", "Temporal Coverage", "Dataset Link")
 
 #read in data for solute record length table
-solute_record_length<-read.csv("/Users/keirajohnson/Box Sync/Keira_Johnson/SiSyn/shinyapp_chemQ_overview.csv")
+solute_record_length<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/shinyapp_chemQ_overview.csv")
 
 #read in master chemistry and format it
-master_chem<-read.csv("/Users/keirajohnson/Box Sync/Keira_Johnson/SiSyn/20240130_masterdata_chem.csv")
+master_chem<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240307_masterdata_chem.csv")
+unique(master_chem$Dataset)
+
 master_chem<-subset(master_chem, master_chem$variable %in% c("SRP", "DSi", "Ca", "K", "Na", "DOC", "Mg", "NO3"))
 master_chem$date<-as.Date(master_chem$date)
 master_chem<-master_chem[complete.cases(master_chem$date),]
 
 #read in master discharge and format it
-master_q<-read.csv("/Users/keirajohnson/Box Sync/Keira_Johnson/SiSyn/20240201_masterdata_discharge.csv")
+master_q<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240201_masterdata_discharge.csv")
 master_q$Date<-as.Date(master_q$Date)
 master_q<-master_q[complete.cases(master_q$Date),]
+
+#read in solute drivers file
+load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Mean_Solute_Drivers.RData")
 
 #create color pallette for map
 pal <- colorFactor(
@@ -181,30 +186,14 @@ overview_ui <- navbarPage(
                  #first for observation network
                  selectInput(inputId = "dropdown_ON2",
                              label = "Observation Network",
-                             choices = c(unique(master_chem$LTER))),
+                             choices = c(unique(master_chem$LTER)),
+                             multiple = TRUE),
                  
                  #then for site
                  selectInput(inputId = "dropdown_site2", 
                              label = "Site", 
-                             choices = NULL),
-                 
-                 #Second site selection
-                 selectInput(inputId = "dropdown_ON3",
-                             label = "Observation Network",
-                             choices = c(unique(master_chem$LTER))),
-                 
-                 selectInput(inputId = "dropdown_site3", 
-                             label = "Site", 
-                             choices = NULL),
-                 
-                 #Third site selection
-                 selectInput(inputId = "dropdown_ON4",
-                             label = "Observation Network",
-                             choices = c(unique(master_chem$LTER))),
-                 
-                 selectInput(inputId = "dropdown_site4", 
-                             label = "Site", 
-                             choices = NULL),
+                             choices = NULL,
+                             multiple = TRUE),
                  
                  #toggle between seasonal and all data
                  actionButton("seasonal_button2", "Toggle Plot")
@@ -222,7 +211,43 @@ overview_ui <- navbarPage(
   tabPanel("Site Comparison"),
   
   #### Data Comparison Panel####
-  tabPanel("Data Comparison")
+  tabPanel("Data Comparison",
+           
+           fluidPage(
+             
+             #first set of plots to look at solute time series
+             titlePanel("Explore Relationships between Catchment Characteristics and Solute Concentrations"),
+             htmltools::p("Please select a climate variable and solute from the dropdown lists below."),
+             
+             #side bar layout allows you to add box on the side of the page, good for plotting
+             sidebarLayout(
+               sidebarPanel(
+                 
+                 #select input creates a dropdown menu
+                 #this lists all observation networks in the master chemistry data
+                 selectInput(inputId = "x_axis_dropdown",
+                             label = "X-Axis Variable",
+                             choices = c(unique(solute_drivers$Driver))),
+                 
+                 selectInput(inputId = "y_axis_dropdown",
+                             label = "Y-Axis Variable",
+                             choices = c(unique(solute_drivers$Driver2))),
+                 
+                 selectInput(inputId = "color_dropdown",
+                             label = "Color Variable",
+                             choices = c(unique(solute_drivers$Driver3))),
+                 
+                 actionButton("LR_button","Add linear regression")
+           
+           ),
+           
+           #plot solute timeseries
+           mainPanel(
+             plotOutput("driver_solute_plot")
+           )
+       )#close sidebar layout
+    )#close fluid page
+  )#close tab panel
 )
 
 
@@ -382,32 +407,10 @@ overview_server <- function(input, output, session){
   observe({
     
     sites_LTER2<-master_chem %>%
-      filter(LTER==input$dropdown_ON2) %>%
+      filter(LTER %in% input$dropdown_ON2) %>%
       distinct(Stream_Name)
     
     updateSelectInput(session, "dropdown_site2", choices = sites_LTER2$Stream_Name)
-    
-  })
-  
-  #return sites within given observation network (dropdown_site3)
-  observe({
-    
-    sites_LTER3<-master_chem %>%
-      filter(LTER==input$dropdown_ON3) %>%
-      distinct(Stream_Name)
-    
-    updateSelectInput(session, "dropdown_site3", choices = sites_LTER3$Stream_Name)
-    
-  })
-  
-  #return sites within given observation network (dropdown_site4)
-  observe({
-    
-    sites_LTER4<-master_chem %>%
-      filter(LTER==input$dropdown_ON4) %>%
-      distinct(Stream_Name)
-    
-    updateSelectInput(session, "dropdown_site4", choices = sites_LTER4$Stream_Name)
     
   })
   
@@ -421,7 +424,7 @@ overview_server <- function(input, output, session){
   chem_actual2<-reactive({
     
     chem_v3() %>%
-      dplyr::filter(Stream_Name %in% c(input$dropdown_site2, input$dropdown_site3, input$dropdown_site4))
+      dplyr::filter(Stream_Name %in% c(input$dropdown_site2))
   })
   
   #whichplot2, to plot seasonal vs annual data
@@ -454,6 +457,46 @@ overview_server <- function(input, output, session){
     which_graph2()
     
   })
+  
+  #### Data Comparison Panel Server####
+  
+  
+  solute_drivers_v2<-reactive({
+    
+    solute_drivers %>%
+      dplyr::filter(Driver==input$x_axis_dropdown & Driver2==input$y_axis_dropdown & Driver3==input$color_dropdown)
+    
+  })
+  
+  #whichplot2, to plot seasonal vs annual data
+  whichplot3<-reactiveVal(TRUE)
+  
+  driver_solute_plot_noLR<-reactive(ggplot(solute_drivers_v2(), aes(Mean_Value, Mean_Value2, col=Mean_Value3))+geom_point()+
+                                 labs(x=input$x_axis_dropdown, y=input$y_axis_dropdown, col=input$color_dropdown)+theme_bw()+theme(text = element_text(size = 20)))
+  
+  driver_solute_plot_LR<-reactive(ggplot(solute_drivers_v2(), aes(Mean_Value, Mean_Value2, col=Mean_Value3))+geom_point()+
+                                    labs(x=input$x_axis_dropdown, y=input$y_axis_dropdown, col=input$color_dropdown)+theme_bw()+theme(text = element_text(size = 20))+
+                                    geom_smooth(method = "lm", se=F, col="firebrick4"))
+  
+  observeEvent(input$LR_button, {
+    whichplot3(!whichplot3())
+  })
+  
+  which_graph3 <- reactive({
+    if (whichplot3()) {
+      driver_solute_plot_noLR()
+    } else {
+      driver_solute_plot_LR()
+    }
+  })
+  
+  #render plot
+  output$driver_solute_plot <- renderPlot({   
+    
+    which_graph3()
+    
+  })
+  
   
 } #close server function
 
