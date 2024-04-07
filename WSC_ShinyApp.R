@@ -23,7 +23,6 @@ solute_record_length<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Proje
 
 #read in master chemistry and format it
 master_chem<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240312_masterdata_chem.csv")
-unique(master_chem$Dataset)
 
 master_chem<-subset(master_chem, master_chem$variable %in% c("SRP", "PO4", "DSi", "Ca", "K", "Na", "DOC", "Mg", "NO3", "NOx"))
 master_chem$date<-as.Date(master_chem$date)
@@ -36,6 +35,34 @@ master_q$Date<-as.Date(master_q$Date)
 master_q<-master_q[complete.cases(master_q$Date),]
 master_q<-master_q[master_q$Stream_Name %in% published_data$Stream_Name,]
 
+chem_dates<-master_chem %>%
+  group_by(Stream_Name) %>%
+  summarise(min_date_chem=min(date), max_date_chem=max(date))
+
+q_dates<-master_q %>%
+  group_by(Stream_Name) %>%
+  summarise(min_date_q=min(Date), max_date_q=max(Date))
+
+dates_all<-merge(chem_dates, q_dates, by="Stream_Name")
+
+dates_all$min<-as.Date(ifelse(dates_all$min_date_chem < dates_all$min_date_q, 
+                              dates_all$min_date_q, dates_all$min_date_chem), origin = "1970-01-01")
+
+dates_all$max<-as.Date(ifelse(dates_all$max_date_chem > dates_all$max_date_q, 
+                              dates_all$max_date_q, dates_all$max_date_chem), origin = "1970-01-01")
+
+master_chem<-merge(master_chem, dates_all[,c(1,6,7)], by="Stream_Name")
+
+master_chem<-master_chem %>%
+  group_by(Stream_Name) %>%
+  filter(date >= min & date <= max)
+
+master_q<-merge(master_q, dates_all[,c(1,6,7)], by="Stream_Name")
+
+master_q<-master_q %>%
+  group_by(Stream_Name) %>%
+  filter(Date >= min & Date <= max)
+  
 #read in solute drivers file
 load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Mean_Solute_Drivers.RData")
 
@@ -231,6 +258,7 @@ overview_ui <- navbarPage(
                
                #now we open a main panel, this will be to the right of the sidebarLayout panel
                mainPanel(
+                 sliderInput("xslider", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
                  plotOutput("timeseries_out"), #plot solute timeseries data, see timeseries_out plot in server below
                  plotOutput("timeseries_out_Q") #plot discharge timeseries data, see timeseries_out_Q plot in server below
                  )
@@ -269,6 +297,7 @@ overview_ui <- navbarPage(
                ),
                #plot solute timeseries
                mainPanel(
+                 sliderInput("xslider2", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
                  plotOutput("timeseries_out2")
               )
              ) #close sidebarLayout
@@ -492,6 +521,26 @@ overview_server <- function(input, output, session){
       dplyr::filter(Stream_Name == input$dropdown_site)
   })
   
+    min_date<-reactive({
+      chem_actual() %>%
+        select("min") %>%
+        distinct()
+    })
+
+    max_date<-reactive({
+      chem_actual() %>%
+        select("max") %>%
+        distinct()
+    })
+  #   
+    
+  observe({
+    
+    updateSliderInput(session, "xslider", min=as.Date(min_date()$min), 
+                      max=as.Date(max_date()$max), value = c(as.Date(min_date()$min), as.Date(max_date()$max)))
+    
+  })  
+  
   #reactiveVal allows you to toggle between two plots
   #here we will use it to display either the full time series OR seasonal data
   whichplot<-reactiveVal(TRUE)
@@ -499,12 +548,13 @@ overview_server <- function(input, output, session){
   #define the two plots
   #first full time series
   all_data<-reactive(ggplot(chem_actual(), aes(date, value, col=variable))+labs(x="Date", y="Concentration (add units)", col="Solute")+
-                       geom_point()+theme_bw()+theme(text = element_text(size = 20)))
+                       geom_point()+theme_bw()+theme(text = element_text(size = 20), legend.position = "bottom")+
+                       xlim(input$xslider))
   
   #then seasonal data
   seasonal_data<-reactive(ggplot(chem_actual(), aes(factor(month(date)), value, fill=factor(variable)))+
                             labs(x="Month", y="Concentration (add units)", fill="Solute")+
-                            geom_boxplot()+theme_bw()+theme(text = element_text(size = 20)))
+                            geom_boxplot()+theme_bw()+theme(text = element_text(size = 20), legend.position = "bottom"))
   
   #this determines which plot to display based on "seasonal_button" which is defined in the UI above
   observeEvent(input$seasonal_button, {
@@ -546,7 +596,7 @@ overview_server <- function(input, output, session){
   
   #all Q plot
   all_data_Q<-reactive(ggplot(q_v2(), aes(Date, Qcms), col="deepskyblue3")+labs(x="Date", y="Discharge (cms)")+
-                         geom_line()+theme_bw()+theme(text = element_text(size = 20)))
+                         geom_line()+theme_bw()+theme(text = element_text(size = 20))+xlim(input$xslider))
   #seasonal Q plot
   seasonal_data_Q<-reactive(ggplot(q_v2_dailyavg(), aes(doy_date, mean_daily))+
                               labs(x="Month", y="Discharge (cms)")+
@@ -600,12 +650,33 @@ overview_server <- function(input, output, session){
       dplyr::filter(Stream_Name %in% c(input$dropdown_site2))
   })
   
+  min_date2<-reactive({
+    chem_actual2() %>%
+      summarise(min_overall=min(min)) %>%
+      slice_min(min_overall)
+  })
+  
+  max_date2<-reactive({
+    chem_actual2() %>%
+      summarise(max_overall=max(max)) %>%
+      slice_max(max_overall)
+  })
+  #   
+  
+  observe({
+    
+    updateSliderInput(session, "xslider2", min=as.Date(min_date2()$min_overall), 
+                      max=as.Date(max_date2()$max_overall), value = c(as.Date(min_date2()$min_overall), 
+                                                                      as.Date(max_date2()$max_overall)))
+    
+  })  
+  
   #whichplot2, to plot seasonal vs annual data
   whichplot2<-reactiveVal(TRUE)
   
   #all time series data
   all_data2<-reactive(ggplot(chem_actual2(), aes(date, value, col=Stream_Name))+labs(x="Date", y="Concentration (add units)", col="Site")+
-                        geom_point()+theme_bw()+theme(text = element_text(size = 20)))
+                        geom_point()+theme_bw()+theme(text = element_text(size = 20))+xlim(input$xslider2))
   
   #seasonal time series data
   seasonal_data2<-reactive(ggplot(chem_actual2(), aes(factor(month(date)), value, fill=factor(Stream_Name)))+
