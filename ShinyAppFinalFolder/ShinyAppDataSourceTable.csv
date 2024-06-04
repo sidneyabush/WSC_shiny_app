@@ -1,0 +1,12 @@
+﻿Variable,Data Source,Units,Spatial Scale,Temporal Scale,Temporal Coverage,Dataset Link
+Surface Air Temperature,GHCN_CAMS Gridded 2m Temperature ,degrees C,0.5°,Annual,1948-present,https://psl.noaa.gov/data/gridded/data.ghcncams.html
+Precipitation,NCEI Precipitation - GPCP Monthly CDR,mm/day,2.5°,Annual,1979-present,https://www.ncei.noaa.gov/products/climate-data-records/precipitation-gpcp-monthly
+ET,MODIS/Terra Net Evapotranspiration 8-Day L4 Global 500 m SIN Grid,kg/m2,500 meter,Annual,2001-present,https://lpdaac.usgs.gov/products/mod16a2v061/
+Snow Covered Area,MODIS Snow and Ice mapping project MOD10A2,proportion of watershed,500 meter,Annual,2002-present,https://nsidc.org/data/mod10a2/versions/61#anchor-1
+Green Up Day,MODIS/Terra+Aqua Land Cover Dynamics Yearly L3 Global 500 m SIN Grid,date,500 meter,Annual,2001-present,https://lpdaac.usgs.gov/products/mcd12q2v006/
+NPP,MODIS/Terra Net Primary Production Gap-Filled Yearly L4 Global 500 m SIN Grid,kgC/m2,500 meter,Annual,2001-present,https://lpdaac.usgs.gov/products/mod17a3hgfv006/
+Day Length,derived from R package chillR,hours,0.0001°,Monthly,static,https://cran.r-project.org/web/packages/chillR/chillR.pdf
+Soil Order,SoilGrids250m 2017-03 - Predicted WRB 2006 subgroup classes,percent,250 meter,Static,static,https://files.isric.org/soilgrids/former/2017-03-10/data/
+Land Cover,Global Land Cover Characterization (GLCC),percent,1 kilometer,Static,1992,https://www.usgs.gov/centers/eros/science/usgs-eros-archive-land-cover-products-global-land-cover-characterization-glcc?qt-science_center_objects=0#qt-science_center_objects
+Lithology,PANGAEA,percent,0.5°,Static,static,https://doi.pangaea.de/10.1594/PANGAEA.788537
+Elevation,WorldClim (derived from SRTM Digital Elevation Model),meters,1 kilometer,Static,static,https://www.worldclim.org/data/worldclim21.html

@@ -1,5 +1,5 @@
 #install packages
-librarian::shelf(shiny, htmltools, tidyverse, leaflet, maps, rcartocolor, DT, ggpubr)
+librarian::shelf(shiny, htmltools, tidyverse, leaflet, maps, rcartocolor, DT, ggpubr, DT, shinythemes, plotly, ggpmisc)
 
 ####read in data for tables, plotting, mapping####
 
@@ -7,41 +7,123 @@ librarian::shelf(shiny, htmltools, tidyverse, leaflet, maps, rcartocolor, DT, gg
 #read in world map and lat/long of each site
 world_countries<-map_data('world')
 
+#read in csv of list of sites that are published
 published_data<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/PublishedSites.csv")
 
-lat_long_sites<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Sites_LatLongClimate.csv")
-lat_long_sites$released<-ifelse(lat_long_sites$Stream_Name %in% published_data$Stream_Name, "yes", "no")
-
-map_color_options<-c("released", "Climate_Zone_Name")
-
-#read in source data for table of drivers
+#read in source data for table of driver information and rename columns
 data_source_table<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/ShinyAppDataSourceTable.csv")
 colnames(data_source_table)<-c("Variable", "Source", "Units", "Spatial Scale", "Temporal Scale", "Temporal Coverage", "Dataset Link")
+
+#read in source data for table and map of site characteristic information
+all_drivers_table<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/MapDriversTable2.csv",
+                            na.strings=c("","NA"))
+
+#rename columns
+colnames(all_drivers_table)<-c("Stream Name", "Observation Network", "Latitude", "Longitude", "Climate Zone",
+                               "Dominant Lithology", "Dominant Land Cover", "Mean Elevation", "Drainage Area (km2)",
+                               "Median Discharge (cms)", "Maximum Proportion Snow Covered Area (proportion)", "Precipitation (mm/year)",
+                               "Evapotranspiration (kg/m2)","Mean Annual Temperature (deg C)", "NPP (kgC/m2)", "Green Up Day (day of year)",
+                               "Maximum Daylength (hours)")
+
+#convert character columns to factors so they can be filtered in the shiny data table
+all_drivers_table$`Stream Name`<-as.factor(all_drivers_table$`Stream Name`)
+all_drivers_table$`Observation Network`<-as.factor(all_drivers_table$`Observation Network`)
+all_drivers_table$`Climate Zone`<-as.factor(all_drivers_table$`Climate Zone`)
+all_drivers_table$`Dominant Lithology`<-as.factor(all_drivers_table$`Dominant Lithology`)
+all_drivers_table$`Dominant Land Cover`<-as.factor(all_drivers_table$`Dominant Land Cover`)
+
+#read in data for table of information about each observation network
+ON_table<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/ObservationNetworkTable.csv")
 
 #read in data for solute record length table
 solute_record_length<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/shinyapp_chemQ_overview.csv")
 
 #read in master chemistry and format it
-master_chem<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240312_masterdata_chem.csv")
+master_chem<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240520_masterdata_chem.csv")
 
 master_chem<-subset(master_chem, master_chem$variable %in% c("SRP", "PO4", "DSi", "Ca", "K", "Na", "DOC", "Mg", "NO3", "NOx"))
 master_chem$date<-as.Date(master_chem$date)
 master_chem<-master_chem[complete.cases(master_chem$date),]
+
+master_chem<-master_chem %>%
+  mutate(Stream_Name = case_when(
+    Stream_Name=="COMO"~"Como Creek",
+    Stream_Name=="East Fork"~"east fork",
+    Stream_Name=="West Fork"~"west fork",
+    Stream_Name=="MG_WEIR"~"Marshall Gulch",
+    Stream_Name=="OR_low"~"Oracle Ridge",
+    .default = Stream_Name
+  ))
+
 master_chem<-master_chem[master_chem$Stream_Name %in% published_data$Stream_Name,]
+
+master_chem <- master_chem %>%
+  mutate(value = case_when(
+    variable=="NO3"~value*14.0067/1000,
+    variable=="NOx"~value*14.0067/1000,
+    variable=="PO4"~value*30.973762/1000,
+    variable=="SRP"~value*30.973762/1000,
+    variable=="Mg"~value*24.30500/1000,
+    variable=="Ca"~value*40.0780/1000,
+    variable=="K"~value*39.09830/1000,
+    variable=="Na"~value*22.989769280/1000,
+    variable=="DSi"~value*28.0855/1000,
+    .default = value
+  ))
+
+master_chem<-master_chem %>%
+  mutate(variable = case_when(
+    variable=="NO3"~"N",
+    variable=="NOx"~"N",
+    variable=="SRP"~"P",
+    variable=="PO4"~"P",
+    .default = variable
+  ))
+
+master_chem<-master_chem %>%
+  mutate(LTER = case_when(
+    LTER=="UMR(Jankowski)"~"UMR",
+    LTER=="LMP(Wymore)"~"LMP",
+    LTER=="KRR(Julian)"~"KRR",
+    LTER=="Sagehen(Sullivan)"~"Sagehen",
+    LTER=="WalkerBranch"~"Walker Branch",
+    LTER=="CZO-Catalina Jemez"~"Catalina Jemez",
+    LTER=="NEON"~"NWT",
+    .default = LTER
+  ))
+
+master_chem$year<-lubridate::year(master_chem$date)
+
+master_chem_summary<-master_chem %>%
+  dplyr::group_by(year, variable) %>%
+  dplyr::summarise(num_streams=n_distinct(Stream_Name))
+
+master_chem_summary$variable<-factor(master_chem_summary$variable, levels = c("Ca", "Mg", "K", "Na", "N", "DSi", "P"))
 
 #read in master discharge and format it
 master_q<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/20240201_masterdata_discharge.csv")
 master_q$Date<-as.Date(master_q$Date)
 master_q<-master_q[complete.cases(master_q$Date),]
+
+master_q<-master_q %>%
+  mutate(Stream_Name = case_when(
+    Stream_Name=="COMO"~"Como Creek",
+    Stream_Name=="East Fork"~"east fork",
+    Stream_Name=="West Fork"~"west fork",
+    Stream_Name=="MG_WEIR"~"Marshall Gulch",
+    Stream_Name=="OR_low"~"Oracle Ridge",
+    .default = Stream_Name
+  ))
+
 master_q<-master_q[master_q$Stream_Name %in% published_data$Stream_Name,]
 
 chem_dates<-master_chem %>%
-  group_by(Stream_Name) %>%
-  summarise(min_date_chem=min(date), max_date_chem=max(date))
+  dplyr::group_by(Stream_Name) %>%
+  dplyr::summarise(min_date_chem=min(date), max_date_chem=max(date))
 
 q_dates<-master_q %>%
-  group_by(Stream_Name) %>%
-  summarise(min_date_q=min(Date), max_date_q=max(Date))
+  dplyr::group_by(Stream_Name) %>%
+  dplyr::summarise(min_date_q=min(Date), max_date_q=max(Date))
 
 dates_all<-merge(chem_dates, q_dates, by="Stream_Name")
 
@@ -54,14 +136,14 @@ dates_all$max<-as.Date(ifelse(dates_all$max_date_chem > dates_all$max_date_q,
 master_chem<-merge(master_chem, dates_all[,c(1,6,7)], by="Stream_Name")
 
 master_chem<-master_chem %>%
-  group_by(Stream_Name) %>%
-  filter(date >= min & date <= max)
+  dplyr::group_by(Stream_Name) %>%
+  dplyr::filter(date >= min & date <= max)
 
 master_q<-merge(master_q, dates_all[,c(1,6,7)], by="Stream_Name")
 
 master_q<-master_q %>%
-  group_by(Stream_Name) %>%
-  filter(Date >= min & Date <= max)
+  dplyr::group_by(Stream_Name) %>%
+  dplyr::filter(Date >= min & Date <= max)
   
 #read in solute drivers file
 load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Mean_Solute_Drivers.RData")
@@ -70,12 +152,169 @@ load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Solute_Dr
 
 load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/CQ_file.RData")
 
-site_map<-leaflet(lat_long_sites) %>% addTiles() %>% addCircleMarkers(lat = ~Latitude, lng= ~Longitude)
+cq_all_nodups$N<-rowMeans(cq_all_nodups[,c(8,9)], na.rm = T)
+
+cq_all_nodups$P<-rowMeans(cq_all_nodups[,c(10,11)], na.rm = T)
+
+cq_all_nodups<-cq_all_nodups[c(1:7,12:15)]
+
+solute_drivers<-solute_drivers %>%
+  mutate(Driver = case_when(
+    Driver=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver=="npp" ~ "NPP (kgC/m2)",
+    Driver=="cycle0" ~ "Green Up Day (day of year)",
+    Driver=="q_95" ~ "95th percentile Discharge (m3/s)",
+    Driver=="q_5" ~ "5th percentile Discharge (m3/s)",
+    Driver=="CV_Q" ~ "Coefficient of Variation in Discharge",
+    Driver=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
+    Driver=="precip" ~ "Precipitation (mm/year)",
+    Driver=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver=="temp" ~ "Temperature (deg C)",
+    Driver=="med_q" ~ "Median Discharge (m3/s)",
+    Driver=="NO3"~"N",
+    Driver=="NOx"~"N",
+    Driver=="PO4"~"P",
+    Driver=="SRP"~"P",
+    .default = Driver
+  ))
+
+solute_drivers <- solute_drivers %>%
+  mutate(Mean_Value = case_when(
+    Driver=="N"~Mean_Value*14.0067/1000,
+    Driver=="P"~Mean_Value*30.973762/1000,
+    Driver=="Mg"~Mean_Value*24.30500/1000,
+    Driver=="Ca"~Mean_Value*40.0780/1000,
+    Driver=="K"~Mean_Value*39.09830/1000,
+    Driver=="Na"~Mean_Value*22.989769280/1000,
+    Driver=="DSi"~Mean_Value*28.0855/1000,
+    .default = Mean_Value
+  ))
+
+solute_drivers_all<-solute_drivers_all %>%
+  mutate(Driver = case_when(
+    Driver=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver=="npp" ~ "NPP (kgC/m2)",
+    Driver=="cycle0" ~ "Green Up Day (day of year)",
+    Driver=="q_95" ~ "95th percentile Discharge (m3/s)",
+    Driver=="q_5" ~ "5th percentile Discharge (m3/s)",
+    Driver=="CV_Q" ~ "Coefficient of Variation in Discharge",
+    Driver=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
+    Driver=="precip" ~ "Precipitation (mm/year)",
+    Driver=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver=="temp" ~ "Temperature (deg C)",
+    Driver=="med_q" ~ "Median Discharge (m3/s)",
+    Driver=="NO3"~"N",
+    Driver=="NOx"~"N",
+    Driver=="PO4"~"P",
+    Driver=="SRP"~"P",
+    .default = Driver
+  ))
+
+solute_drivers_all <- solute_drivers_all %>%
+  mutate(Mean_Value = case_when(
+    Driver=="N"~Mean_Value*14.0067/1000,
+    Driver=="P"~Mean_Value*30.973762/1000,
+    Driver=="Mg"~Mean_Value*24.30500/1000,
+    Driver=="Ca"~Mean_Value*40.0780/1000,
+    Driver=="K"~Mean_Value*39.09830/1000,
+    Driver=="Na"~Mean_Value*22.989769280/1000,
+    Driver=="DSi"~Mean_Value*28.0855/1000,
+    .default = Mean_Value
+  ))
+
+solute_drivers_all<-solute_drivers_all %>%
+  mutate(Driver2 = case_when(
+    Driver2=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver2=="npp" ~ "NPP (kgC/m2)",
+    Driver2=="cycle0" ~ "Green Up Day (day of year)",
+    Driver2=="q_95" ~ "95th percentile Discharge (m3/s)",
+    Driver2=="q_5" ~ "5th percentile Discharge (m3/s)",
+    Driver2=="CV_Q" ~ "Coefficient of Variation in Discharge",
+    Driver2=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
+    Driver2=="precip" ~ "Precipitation (mm/year)",
+    Driver2=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver2=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver2=="temp" ~ "Temperature (deg C)",
+    Driver2=="med_q" ~ "Median Discharge (m3/s)",
+    Driver2=="NO3"~"N",
+    Driver2=="NOx"~"N",
+    Driver2=="PO4"~"P",
+    Driver2=="SRP"~"P",
+    .default = Driver2
+  ))
+
+solute_drivers_all <- solute_drivers_all %>%
+  mutate(Mean_Value2 = case_when(
+    Driver2=="N"~Mean_Value2*14.0067/1000,
+    Driver2=="P"~Mean_Value2*30.973762/1000,
+    Driver2=="Mg"~Mean_Value2*24.30500/1000,
+    Driver2=="Ca"~Mean_Value2*40.0780/1000,
+    Driver2=="K"~Mean_Value2*39.09830/1000,
+    Driver2=="Na"~Mean_Value2*22.989769280/1000,
+    Driver2=="DSi"~Mean_Value2*28.0855/1000,
+    .default = Mean_Value2
+  ))
+
+solute_drivers_all<-solute_drivers_all %>%
+  mutate(Driver3 = case_when(
+    Driver3=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver3=="npp" ~ "NPP (kgC/m2)",
+    Driver3=="cycle0" ~ "Green Up Day (day of year)",
+    Driver3=="q_95" ~ "95th percentile Discharge (m3/s)",
+    Driver3=="q_5" ~ "5th percentile Discharge (m3/s)",
+    Driver3=="CV_Q" ~ "Coefficient of Variation in Discharge",
+    Driver3=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
+    Driver3=="precip" ~ "Precipitation (mm/year)",
+    Driver3=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver3=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver3=="temp" ~ "Temperature (deg C)",
+    Driver3=="med_q" ~ "Median Discharge (m3/s)",
+    Driver3=="NO3"~"N",
+    Driver3=="NOx"~"N",
+    Driver3=="PO4"~"P",
+    Driver3=="SRP"~"P",
+    .default = Driver3
+  ))
+
+solute_drivers_all <- solute_drivers_all %>%
+  mutate(Mean_Value3 = case_when(
+    Driver3=="N"~Mean_Value3*14.0067/1000,
+    Driver3=="P"~Mean_Value3*30.973762/1000,
+    Driver3=="Mg"~Mean_Value3*24.30500/1000,
+    Driver3=="Ca"~Mean_Value3*40.0780/1000,
+    Driver3=="K"~Mean_Value3*39.09830/1000,
+    Driver3=="Na"~Mean_Value3*22.989769280/1000,
+    Driver3=="DSi"~Mean_Value3*28.0855/1000,
+    .default = Mean_Value3
+  ))
+
+site_map<-leaflet(all_drivers_table) %>% addTiles() %>% 
+  addCircleMarkers(lat = ~Latitude, lng= ~Longitude, color = "darkgrey",
+                   popup = ~paste(`Stream Name`, `Observation Network`, sep = "<br>"), weight = 1, fillOpacity = 0.7)
+
+map_color_options<-c("Observation Network", "Climate Zone", "Dominant Lithology", "Dominant Land Cover",
+                     "Mean Elevation", "Drainage Area (km2)", "Median Discharge (cms)", 
+                     "Maximum Proportion Snow Covered Area (proportion)", "Precipitation (mm/year)",
+                     "Evapotranspiration (kg/m2)", "Mean Annual Temperature (deg C)", "NPP (kgC/m2)",
+                     "Green Up Day (day of year)", "Maximum Daylength (hours)")
+
+cat_color_options<-c("Observation Network", "Climate Zone", "Dominant Lithology", "Dominant Land Cover")
+
+cont_color_options<-c("Mean Elevation", "Drainage Area (km2)", "Median Discharge (cms)", 
+                      "Maximum Proportion Snow Covered Area (proportion)", "Precipitation (mm/year)",
+                      "Evapotranspiration (kg/m2)", "Mean Annual Temperature (deg C)", "NPP (kgC/m2)",
+                      "Green Up Day (day of year)", "Maximum Daylength (hours)")
+
+c25 <- c(
+  "dodgerblue2", "#E31A1C","green4","#6A3D9A","#FF7F00","gold1","skyblue2", "#FB9A99","palegreen2","#CAB2D6","#FDBF6F",
+  "khaki2","maroon", "orchid1", "deeppink1", "blue1", "steelblue4","darkturquoise", "green1", "yellow3","darkorange4")
 
 ####User Interface####
 overview_ui <- navbarPage(
   # Title of the app
-  "Sythesize It!",
+  "Synthesize It!",
   
   #Here is where you start adding pages
   #tab panel makes a new page, "About" is the name of the tab
@@ -99,7 +338,7 @@ overview_ui <- navbarPage(
                       
                       htmltools::p("Big data integration offers the potential to advance water science by promoting a more comprehensive understanding of watershed function. 
                            During this workshop, we will explore an extensive dataset including field observations and modeled results of multiple stream chemical 
-                           and hydrometric parameters spanning nearly 500 rivers. This dataset also includes associated spatial data describing climate, land cover, lithology, 
+                           and hydrometric parameters spanning over 200 rivers. This dataset also includes associated spatial data describing climate, land cover, lithology, 
                            and topography associated with each watershed. We will explore questions and hypotheses about stream biogeochemical function using data visualization
                            tools to evaluate relationships between catchment characteristics and watershed processes."),
                       
@@ -107,20 +346,7 @@ overview_ui <- navbarPage(
                       
                       htmltools::p("This workshop stems out of a NCEAS funded working group to better understand controls on concentrations, fluxes, seasonality, and trends in
                            riverine silicon (Si). For the past 5 years, we have worked to compile and harmonize this dataset to answer questions focused on better
-                           understanding Si cycling globally."),
-                      
-                      htmltools::h3("Published Manuscripts"),
-                      
-                      uiOutput("long_term_MS"),
-                      
-                      uiOutput("regimes_MS"),
-                      
-                      htmltools::h3("Data Publications"),
-                      
-                      uiOutput("long_term_data"),
-                      
-                      uiOutput("regimes_data")
-                      
+                           understanding Si cycling globally.")
                       )
              ) #close fluid row
            ) #close fluid page
@@ -137,29 +363,14 @@ overview_ui <- navbarPage(
              fluidRow(
                
                htmltools::p("The dataset included in this workshop includes stream chemistry, discharge, climate, land use, lithology, and topography data 
-                            from over 500 rivers across all 7 continents. Stream discharge and chemistry data was contributed from public and private monitoring networks, research groups,
+                            from over 200 across the globe. Stream discharge and chemistry data was contributed from public and private monitoring networks, research groups,
                             and govenmental agencies. Climate, productivity, land use, lithology, and topography associated with each watershed was derived from globally available modeled
                             and remotely sensed data products."),
                
-               htmltools::h2("Site Locations"),
-               
-               htmltools::p("The map below shows sites where data has been published in blue. Sites shown in grey are places where we have data but it is not yet published."),
-               
-               #add option to color points by different things
-               varSelectInput(
-                 inputId = "map_option",
-                 label = "Color Sites By:",
-                 data = lat_long_sites %>% select(map_color_options)
-               ),
-               
-               #see mymap output in server below
-               leafletOutput("mymap"),
-               
                htmltools::h2("Discharge and Solute Availability"),
                
-               htmltools::p("This dataset includes daily stream discharge and discrete stream chemistry. Solutes include silicon (Si),
-                            calcium (Ca), magnesium (Mg), sodium (Na), potassium (K), nitrogren (NO3/NOx), phosphorus (PO4/SRP), and
-                            dissolved organic carbon (DOC)."),
+               htmltools::p("This dataset includes daily stream discharge and discrete stream chemistry. Solutes include nitrogren (NO3/NOx), 
+                            phosphorus (PO4/SRP), silicon (Si), calcium (Ca), magnesium (Mg), sodium (Na), and potassium (K)."),
                  
                #see plot1 output in server below
                plotOutput('plot1'),
@@ -177,13 +388,81 @@ overview_ui <- navbarPage(
            )#close fluid page
   ), #close tab panel
   
+  tabPanel("Site Locations",
+           
+           fluidPage(
+             
+             htmltools::h2("Site Locations"),
+             
+            sidebarPanel(
+              
+              dataTableOutput('table3')
+              
+            ),
+            
+            mainPanel(
+              
+             htmltools::h2("Site Map"),
+              
+            htmltools::p("The map below displays the stream locations included in this dataset. Select a variable from the dropdown list to color sites by watershed 
+                         Observation Network or catchment characteristic. Click on an individual point to see associated the name and Observation Network. For more information
+                         on each Observation Network, please visit the associated webpage linked in the table to the left."),
+             
+             #add option to color points by different things
+             varSelectInput(
+               inputId = "map_option",
+               label = "Color Sites By:",
+               data = all_drivers_table %>% select(map_color_options)
+             ),
+             
+             #see mymap output in server below
+             leafletOutput("mymap"),
+             
+             htmltools::h2("Site Information"),
+             
+             htmltools::p("Watershed characteristic data for each site included in the dataset. Click on the column names to sort
+                          the data table alphabetically, or filter sites using the boxes at the top of each column. You may apply filters across
+                          multiple columns at once. All climate values are mean annual values between 2001 and 2019."),
+             
+             DT::DTOutput('table2')
+             
+            ), #close main panel
+             
+             )#close fluid page
+           
+           ), #close tab panel
+  
   tabPanel("Data Exploration",
            
            fluidPage(
              
              #first set of plots to look at solute time series
-             titlePanel("Explore Relationships between Catchment Characteristics and Solute Concentrations"),
-             htmltools::p("Please select a climate variable and solute from the dropdown lists below."),
+             titlePanel("Explore Distributions of Solutes and Catchment Characteristics"),
+             htmltools::p("Please select a solute or catchment characteristic from the dropdown list below to explore distributions of 
+                          the selected variable across the dataset. All solute concentrations are in mg/L."),
+             
+             #side bar layout allows you to add box on the side of the page, good for plotting
+             sidebarLayout(
+               sidebarPanel(
+                 
+                 #select input creates a dropdown menu
+                 #this lists all observation networks in the master chemistry data
+                 selectInput(inputId = "driver_solute_dropdown",
+                             label = "Variable",
+                             choices = c(unique(solute_drivers$Driver)))
+                 
+               ),
+               
+               #plot solute timeseries
+               mainPanel(
+                 plotOutput("driver_histogram")
+               )
+               
+             ),#close sidebar layout
+             
+             #first set of plots to look at solute time series
+             titlePanel("Explore Relationships between Solutes and Catchment Characteristics"),
+             htmltools::p("Please select a solute or catchment characteristic from each of the dropdown lists below. All solute concentrations are in mg/L."),
              
              #side bar layout allows you to add box on the side of the page, good for plotting
              sidebarLayout(
@@ -218,124 +497,16 @@ overview_ui <- navbarPage(
            
   ), #close tab panel
   
-  #### Time Series Panel ####
-  #here we add interactive plotting functions
-  #users select the input using the "selectInput" function, and that input feeds into input used in the server code below
-  tabPanel("Time Series",
-           
-           fluidPage(
-             
-             #first set of plots to look at solute time series
-             titlePanel("Explore Solute Time Series"),
-             htmltools::p("Please select a site from the drop down menu below. You may display a maximum of three solutes."),
-             
-             #side bar layout allows you to add box on the side of the page, good for plotting
-             sidebarLayout(
-               sidebarPanel(
-                 
-                 #select input creates a dropdown menu
-                 #this lists all observation networks in the master chemistry data
-                 selectInput(inputId = "dropdown_ON",
-                             label = "Observation Network",
-                             choices = c(unique(master_chem$LTER))),
-                 
-                 #this takes the output from the observation network and lists all sites wihtin the observation network
-                 #see input "dropdown_site" in server below
-                 selectInput(inputId = "dropdown_site", 
-                             label = "Site", 
-                             choices = NULL),
-                 
-                 #radio buttons allow you to check multiple options (think select many)
-                 #we are using these to list solutes
-                 checkboxGroupInput(inputId = "button_spp",
-                              label = "Solute",
-                              choices = c(unique(master_chem$variable))),
-                 
-                 #action buttons allow you to toggle between things (e.g., all data vs annual data, log vs not log plot scales, etc)
-                 actionButton("seasonal_button", "Toggle Plot")
-                 
-               ),
-               
-               #now we open a main panel, this will be to the right of the sidebarLayout panel
-               mainPanel(
-                 sliderInput("xslider", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
-                 plotOutput("timeseries_out"), #plot solute timeseries data, see timeseries_out plot in server below
-                 plotOutput("timeseries_out_Q") #plot discharge timeseries data, see timeseries_out_Q plot in server below
-                 )
-             ),
-             
-             #add secondary title for another set of plots, this time with more dropdowns for sites
-             titlePanel("Compare Solute Time Series Across Sites"),
-             
-             htmltools::p("Please select a solute from the drop down menu below. You may display a maximum of three sites."),
-             
-              #sidebar layout to select inputs
-             sidebarLayout(
-               sidebarPanel(
-                 
-                 # Radio buttons for solutes
-                 radioButtons(inputId = "button_solute2",
-                                    label = "Solute",
-                                    choices = c(unique(master_chem$variable))),
-                 
-                 # Dropdown for watershed, since users can select three different sites this is repeated three times
-                 #first for observation network
-                 selectInput(inputId = "dropdown_ON2",
-                             label = "Observation Network",
-                             choices = c(unique(master_chem$LTER)),
-                             multiple = TRUE),
-                 
-                 #then for site
-                 selectInput(inputId = "dropdown_site2", 
-                             label = "Site", 
-                             choices = NULL,
-                             multiple = TRUE),
-                 
-                 #toggle between seasonal and all data
-                 actionButton("seasonal_button2", "Toggle Plot")
-              
-               ),
-               #plot solute timeseries
-               mainPanel(
-                 sliderInput("xslider2", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
-                 plotOutput("timeseries_out2")
-              )
-             ) #close sidebarLayout
-           ) #close fluid page
-          ), #close panel
-  
   #### Site Comparison Panel####
   tabPanel("Site Comparison",
            
            fluidPage(
              
-             #first set of plots to look at solute time series
-             titlePanel("Explore Distributions of Solutes and Drivers across the dataset"),
-             htmltools::p("Please select a variable or solute from the dropdown list below."),
-           
-             #side bar layout allows you to add box on the side of the page, good for plotting
-             sidebarLayout(
-               sidebarPanel(
-                 
-                 #select input creates a dropdown menu
-                 #this lists all observation networks in the master chemistry data
-                 selectInput(inputId = "driver_solute_dropdown",
-                             label = "Variable",
-                             choices = c(unique(solute_drivers$Driver)))
-                 
-               ),
-               
-               #plot solute timeseries
-               mainPanel(
-                 plotOutput("driver_histogram")
-               )
-               
-             ),#close sidebar layout
-             
              #add secondary title for another set of plots, this time with more dropdowns for sites
-             titlePanel("Compare Solute Distributions across sites"),
+             titlePanel("Compare Solute Distributions Across Sites"),
              
-             htmltools::p("Please select a solute from the drop down menu below and a maximum of 10 sites from the site dropdown"),
+             htmltools::p("Using the buttons below, select a solute to compare boxplot distributions of one solute across sites. Select sites using the Observation Network
+                          and Site drop down menus. We suggest displaying no more than 10 sites at a time."),
              
              #sidebar layout to select inputs
              sidebarLayout(
@@ -364,48 +535,190 @@ overview_ui <- navbarPage(
                mainPanel(
                  plotOutput("solute_boxplot")
                )
-             ) #close sidebarLayout
+             ), #close sidebarLayout
+             
+             #add secondary title for another set of plots, this time with more dropdowns for sites
+             titlePanel("Compare Solute Time Series Across Sites"),
+             
+             htmltools::p("Using the buttons below, select a solute to compare time series of one solute across sites. Select sites using the Observation Network
+                          and Site drop down menus. Use the Toggle button to switch between instantanous and average monthly data. We suggest displaying no more than 3 sites at a time."),
+             
+             #sidebar layout to select inputs
+             sidebarLayout(
+               sidebarPanel(
+                 
+                 # Radio buttons for solutes
+                 radioButtons(inputId = "button_solute2",
+                              label = "Solute",
+                              choices = c(unique(master_chem$variable))),
+                 
+                 # Dropdown for watershed, since users can select three different sites this is repeated three times
+                 #first for observation network
+                 selectInput(inputId = "dropdown_ON2",
+                             label = "Observation Network",
+                             choices = c(unique(master_chem$LTER)),
+                             multiple = TRUE),
+                 
+                 #then for site
+                 selectInput(inputId = "dropdown_site2", 
+                             label = "Site", 
+                             choices = NULL,
+                             multiple = TRUE),
+                 
+                 #toggle between seasonal and all data
+                 actionButton("seasonal_button2", "Toggle between instantanous and annual average plot")
+                 
+               ),
+               #plot solute timeseries
+               mainPanel(
+                 sliderInput("xslider2", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
+                 plotOutput("timeseries_out2")
+               )
+             ), #close sidebarLayout
+             
+             #first set of plots to look at solute time series
+             titlePanel("Explore Concentration-Discharge Relationships Across Sites"),
+             htmltools::p("Using the buttons below, select a solute to compare concentration-discharge (C-Q) relationships of one solute across sites. 
+                          Select sites using the Observation Network and Site drop down menus. The equation and R2 in the upper left of the plot 
+                          provide slope and fit information for each C-Q relationship. We suggest displaying no more than 3 sites at a time."),
+             
+             sidebarLayout(
+               sidebarPanel(
+                 
+                 # Radio buttons for solutes
+                 radioButtons(inputId = "button_solute4",
+                              label = "Solute",
+                              choices = c(unique(master_chem$variable))),
+                 
+                 # Dropdown for watershed, since users can select three different sites this is repeated three times
+                 #first for observation network
+                 selectInput(inputId = "dropdown_ON4",
+                             label = "Observation Network",
+                             choices = c(unique(master_chem$LTER)),
+                             multiple = TRUE),
+                 
+                 #then for site
+                 selectInput(inputId = "dropdown_site4", 
+                             label = "Site", 
+                             choices = NULL,
+                             multiple = TRUE)
+               ), #close sidebar panel
+               #plot solute timeseries
+               mainPanel(
+                 plotOutput("cq_plot")
+               )
+             )#close sidebar layout
            )#close fluid page
   ),#close tab panel
   
-  #### Data Comparison Panel####
-  tabPanel("CQ",
+  #### Time Series Panel ####
+  #here we add interactive plotting functions
+  #users select the input using the "selectInput" function, and that input feeds into input used in the server code below
+  tabPanel("Site Specific Time Series",
            
            fluidPage(
              
-           #first set of plots to look at solute time series
-           titlePanel("Explore Concentration Discharge Relationships across sites"),
-           htmltools::p("Please select a solute from the dropdown lists below."),
-           
-           sidebarLayout(
-             sidebarPanel(
+             #first set of plots to look at solute time series
+             titlePanel("Compare Multi-Solute Time Series at One Site"),
+             htmltools::p("Using the buttons below, select multiple solutes to time series solute concentrations at one site. Select one site using the Observation Network
+                          and Site drop down menus. Discharge is shown over the same period of record. Use the Toggle button to switch between 
+                          instantanous and average monthly solute concentration data, and daily and average daily discharge data."),
+             
+             #side bar layout allows you to add box on the side of the page, good for plotting
+             sidebarLayout(
+               sidebarPanel(
+                 
+                 #select input creates a dropdown menu
+                 #this lists all observation networks in the master chemistry data
+                 selectInput(inputId = "dropdown_ON",
+                             label = "Observation Network",
+                             choices = c(unique(master_chem$LTER))),
+                 
+                 #this takes the output from the observation network and lists all sites wihtin the observation network
+                 #see input "dropdown_site" in server below
+                 selectInput(inputId = "dropdown_site", 
+                             label = "Site", 
+                             choices = NULL),
+                 
+                 #radio buttons allow you to check multiple options (think select many)
+                 #we are using these to list solutes
+                 checkboxGroupInput(inputId = "button_spp",
+                                    label = "Solute",
+                                    choices = c(unique(master_chem$variable))),
+                 
+                 #action buttons allow you to toggle between things (e.g., all data vs annual data, log vs not log plot scales, etc)
+                 actionButton("seasonal_button", "Toggle between instantanous and annual average plot")
+                 
+               ),
                
-               # Radio buttons for solutes
-               radioButtons(inputId = "button_solute4",
-                            label = "Solute",
-                            choices = c(unique(master_chem$variable))),
-               
-               # Dropdown for watershed, since users can select three different sites this is repeated three times
-               #first for observation network
-               selectInput(inputId = "dropdown_ON4",
-                           label = "Observation Network",
-                           choices = c(unique(master_chem$LTER)),
-                           multiple = TRUE),
-               
-               #then for site
-               selectInput(inputId = "dropdown_site4", 
-                           label = "Site", 
-                           choices = NULL,
-                           multiple = TRUE)
-             ), #close sidebar panel
-             #plot solute timeseries
-             mainPanel(
-               plotOutput("cq_plot")
+               #now we open a main panel, this will be to the right of the sidebarLayout panel
+               mainPanel(
+                 sliderInput("xslider", label = "Select Date Range of Interest", min = 0, max = 10, value = c(1,9)),
+                 plotOutput("timeseries_out"), #plot solute timeseries data, see timeseries_out plot in server below
+                 plotOutput("timeseries_out_Q") #plot discharge timeseries data, see timeseries_out_Q plot in server below
+               )
              )
-       )#close sidebar layout
-    )#close fluid page
-  )#close tab panel
-)
+           ) #close fluid page
+  ), #close panel
+  
+####Resources Panel####  
+  tabPanel("Resources",
+           
+           fluidPage(
+            
+             fluidRow(
+               
+               column(width = 4,
+                      
+                      tags$img(src="Slide1.jpeg", width="100%"),
+                      
+                      tags$div("This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 
+                          4.0 International License. To view a copy of this license, visit:",
+                          tags$a(href="https://creativecommons.org/licenses/by-nc-sa/4.0/", "https://creativecommons.org/licenses/by-nc-sa/4.0/.")
+                          )
+                      ),
+               
+               column(width = 8,
+                      
+                      htmltools::h2("Manuscripts"),
+                      
+                      uiOutput("long_term_MS"),
+                      
+                      uiOutput("regimes_MS"),
+                      
+                      htmltools::h2("Data Releases"),
+                      
+                      uiOutput("long_term_data"),
+                      
+                      uiOutput("regimes_data"),
+                      
+                      htmltools::h2("Interested in building your own ShinyApp?"),
+                      
+                      uiOutput("github_page"),
+                      
+                      uiOutput("shiny_page"),
+                      
+                      htmltools::h2("Contact Us!"),
+                      
+                      htmltools::h3("Workshop Conveners"),
+                      
+                      htmltools::p("Keira Johnson: johnkeir@oregonstate.edu"),
+                      
+                      htmltools::p("Sidney Bush: bushsi@oregonstate.edu"),
+                      
+                      htmltools::h3("Project PIs"),
+                      
+                      htmltools::p("Kathi Jo Jankowski: kjankowski@usgs.gov"),
+                      
+                      htmltools::p("Joanna Carey: jcarey@babson.edu"),
+                      
+                      htmltools::p("Pamela Sullivan: pamela.sullivan@oregonstate.edu"),
+                      
+                )
+             ) #close fluid row
+           ) #close fluid page
+           ) # close tab panel
+) #close UI
 
 
 #### Server ####
@@ -434,6 +747,17 @@ overview_server <- function(input, output, session){
     tagList(url4)
   })
   
+  url5<-a("Shiny App GitHub Page", href="https://github.com/sidneyabush/WSC_shiny_app.git")
+  output$github_page <- renderUI({
+    tagList(url5)
+  })
+  
+  url6<-a("Getting Started with Shiny", href="https://shiny.posit.co/r/getstarted/shiny-basics/lesson1/index.html")
+  output$shiny_page <- renderUI({
+    tagList(url6)
+  })
+
+  
   #### Data Panel Server ####
   
   #map output
@@ -441,30 +765,52 @@ overview_server <- function(input, output, session){
   
   map_color <- reactive({
     
-    lat_long_sites %>%
+    all_drivers_table %>%
       select(input$map_option) %>%
       unlist()
     
   })
-  
-  pal <- reactive({colorFactor("RdYlBu", domain = map_color())(map_color())})
-  
-  pal2<-reactive({colorFactor("RdYlBu", domain = map_color())})
-  
-  legend_values <- reactive({lat_long_sites %>%
-                              select(input$map_option)})
+
+  pal<-reactive({
+
+    if(input$map_option == "Observation Network"){
+      colorFactor(c25, domain = map_color())
+    } else if(input$map_option == "Climate Zone"){
+      colorFactor(c25, domain = map_color())
+    } else if(input$map_option == "Dominant Lithology"){
+      colorFactor(c25, domain = map_color())
+    } else if(input$map_option == "Dominant Land Cover"){
+      colorFactor(c25, domain = map_color())
+    } else {
+      colorNumeric("RdYlGn", domain = map_color())
+    }
+
+  })
   
   observe({
 
-      leafletProxy("mymap", data = lat_long_sites) %>%
+    leafletProxy("mymap", data = all_drivers_table) %>%
       clearMarkers() %>%
       clearControls() %>%
       addCircleMarkers(lat = ~Latitude, lng= ~Longitude,
-                       popup = ~as.character(Stream_Name), weight = 1, fillOpacity = 0.7,
-                       color = ~pal())
-      #addLegend(position = "topright", pal = pal2, values = legend_values(), title = "Legend")
+                       popup = ~paste(`Stream Name`, `Observation Network`, sep = "<br>"), weight = 1, fillOpacity = 0.7,
+                       color = ~pal()(map_color())) %>%
+      addLegend(position = "topright", pal = pal(), values = map_color(), title = "Legend")
 
   })
+
+  #drivers table information
+  output$table3<- renderDataTable({
+    
+    my_table3 <- ON_table
+    colnames(my_table3)<-c("Abbreviation", "Observation Network", "Dataset Link")
+    #this makes the links "clickable"
+    my_table3$`Dataset Link`<-paste0('<a href="', my_table3$`Dataset Link`, '">',"Visit the Observation Network Website!",'</a>')
+    return(my_table3)},
+    #edit how table appears
+    options = list(searching = FALSE, paging = FALSE, autoWidth = TRUE, info=FALSE, autoWidth=TRUE),
+    escape = FALSE)
+  
   
   #drivers table information
   output$table1<- renderDataTable({
@@ -474,19 +820,85 @@ overview_server <- function(input, output, session){
     #this makes the links "clickable"
     my_table$`Dataset Link`<-paste0('<a href="', my_table$`Dataset Link`, '">',"Visit the Data Source Website!",'</a>')
     return(my_table)
-    selection="none"
+    selection="multiple"
+    options=list(stateSave = TRUE)
   }, 
   #edit how table appears
   options = list(searching = FALSE, paging = FALSE, autoWidth = TRUE, info=FALSE, autoWidth=TRUE),
   escape = FALSE)
   
+  # TableProxy <-  dataTableProxy("table2")
+  # 
+  # # to keep track of previously selected row
+  # prev_row <- reactiveVal()
+  # 
+  # # new icon style
+  # #my_icon = makeAwesomeIcon(icon = 'flag', markerColor = 'red', iconColor = 'white')
+  # 
+  # observeEvent(input$table2_rows_selected, {
+  #   row_selected = all_drivers_table[input$table2_rows_selected,]
+  #   leafletProxy("mymap") %>%
+  #     addCircleMarkers(lng=row_selected$Longitude, 
+  #                       lat=row_selected$Latitude,
+  #                      fillColor = "red")
+  #   
+  #   # Reset previously selected marker
+  #   if(!is.null(prev_row()))
+  #   {
+  #     leafletProxy("mymap", data = all_drivers_table) %>%
+  #           addCircleMarkers(lat = prev_row()$Latitude, lng= prev_row()$Longitude,
+  #                            popup = ~paste(`Stream Name`, `Observation Network`, sep = "<br>"), weight = 1, fillOpacity = 0.7,
+  #                            color = ~pal()(map_color())
+  #                            )
+  #   }
+  #   # set new value to reactiveVal 
+  #   prev_row(row_selected)
+  # })
+  # 
+  # #map
+  # observe({
+  #   
+  #   leafletProxy("mymap", data = all_drivers_table) %>%
+  #     clearMarkers() %>%
+  #     clearControls() %>%
+  #     addCircleMarkers(lat = ~Latitude, lng= ~Longitude,
+  #                      popup = ~paste(`Stream Name`, `Observation Network`, sep = "<br>"), weight = 1, fillOpacity = 0.7,
+  #                      color = ~pal()(map_color())) %>%
+  #     addLegend(position = "topright", pal = pal(), values = map_color(), title = "Legend")
+  #   
+  # })
+  # 
+  # observeEvent(input$mymap_marker_click, {
+  #   clickId <- input$mymap_marker_click$`Stream Name`
+  #   dataTableProxy("table2") %>%
+  #     selectRows(which(all_drivers_table$`Stream Name` == clickId)) %>%
+  #     selectPage(which(input$table2_rows_all == clickId) %/% input$table2_state$length + 1)
+  # })
+
   #plot 1 output
   output$plot1<-renderPlot({
     
-    ggplot(solute_record_length, aes(year, variable, col=freq))+geom_line(lwd=15)+
-    theme_classic()+labs(y="", x="Year", col="Number of Sites")+theme(text = element_text(size = 20, family = "Times"))
+    ggplot(master_chem_summary, aes(x=year, y=variable, col=num_streams))+geom_line(lwd=15)+
+    theme_classic()+labs(y="", x="Year", col="Number of Sites")+
+      theme(text = element_text(size = 20, family = "Times"))+
+      scale_color_gradient(low = "grey76", high = "deepskyblue3",limits=c(0,200))
   
   })
+  
+  ####Site Location Panel Server####
+  
+  #drivers table information
+  output$table2<- DT::renderDT({
+    
+    DT::datatable(
+      all_drivers_table,
+      #selection = "none",
+      filter="top",
+      #options = list(paging = TRUE, autoWidth = TRUE, info=FALSE, searching=FALSE),
+      escape = FALSE)
+
+  }
+  )
   
   #### Time Series Panel Server ####
   #in the time series panel there is quite a bit of inputs that are dependent on previous selection
@@ -547,13 +959,13 @@ overview_server <- function(input, output, session){
   
   #define the two plots
   #first full time series
-  all_data<-reactive(ggplot(chem_actual(), aes(date, value, col=variable))+labs(x="Date", y="Concentration (add units)", col="Solute")+
+  all_data<-reactive(ggplot(chem_actual(), aes(date, value, col=variable))+labs(x="Date", y="Concentration (mg/L)", col="Solute")+
                        geom_point()+theme_bw()+theme(text = element_text(size = 20), legend.position = "bottom")+
                        xlim(input$xslider))
   
   #then seasonal data
   seasonal_data<-reactive(ggplot(chem_actual(), aes(factor(month(date)), value, fill=factor(variable)))+
-                            labs(x="Month", y="Concentration (add units)", fill="Solute")+
+                            labs(x="Month", y="Concentration (mg/L)", fill="Solute")+
                             geom_boxplot()+theme_bw()+theme(text = element_text(size = 20), legend.position = "bottom"))
   
   #this determines which plot to display based on "seasonal_button" which is defined in the UI above
@@ -595,11 +1007,11 @@ overview_server <- function(input, output, session){
   whichplot_Q<-reactiveVal(TRUE)
   
   #all Q plot
-  all_data_Q<-reactive(ggplot(q_v2(), aes(Date, Qcms), col="deepskyblue3")+labs(x="Date", y="Discharge (cms)")+
+  all_data_Q<-reactive(ggplot(q_v2(), aes(Date, Qcms), col="deepskyblue3")+labs(x="Date", y="Discharge (m3/s)")+
                          geom_line()+theme_bw()+theme(text = element_text(size = 20))+xlim(input$xslider))
   #seasonal Q plot
   seasonal_data_Q<-reactive(ggplot(q_v2_dailyavg(), aes(doy_date, mean_daily))+
-                              labs(x="Month", y="Discharge (cms)")+
+                              labs(x="Month", y="Discharge (m3/s)")+
                               geom_line()+theme_bw()+theme(text = element_text(size = 20))+
                               scale_x_date(date_breaks = "1 month", date_labels = "%b"))
   
@@ -652,14 +1064,14 @@ overview_server <- function(input, output, session){
   
   min_date2<-reactive({
     chem_actual2() %>%
-      summarise(min_overall=min(min)) %>%
-      slice_min(min_overall)
+      dplyr::summarise(min_overall=min(min)) %>%
+      dplyr::slice_min(min_overall)
   })
   
   max_date2<-reactive({
     chem_actual2() %>%
-      summarise(max_overall=max(max)) %>%
-      slice_max(max_overall)
+      dplyr::summarise(max_overall=max(max)) %>%
+      dplyr::slice_max(max_overall)
   })
   #   
   
@@ -675,12 +1087,12 @@ overview_server <- function(input, output, session){
   whichplot2<-reactiveVal(TRUE)
   
   #all time series data
-  all_data2<-reactive(ggplot(chem_actual2(), aes(date, value, col=Stream_Name))+labs(x="Date", y="Concentration (add units)", col="Site")+
+  all_data2<-reactive(ggplot(chem_actual2(), aes(date, value, col=Stream_Name))+labs(x="Date", y=input$button_solute2, col="Site")+
                         geom_point()+theme_bw()+theme(text = element_text(size = 20))+xlim(input$xslider2))
   
   #seasonal time series data
   seasonal_data2<-reactive(ggplot(chem_actual2(), aes(factor(month(date)), value, fill=factor(Stream_Name)))+
-                             labs(x="Month", y="Concentration (add units)", fill="Site")+
+                             labs(x="Month", y=input$button_solute2, fill="Site")+
                              geom_boxplot()+theme_bw()+theme(text = element_text(size = 20)))
   
   observeEvent(input$seasonal_button2, {
@@ -745,7 +1157,8 @@ overview_server <- function(input, output, session){
   output$solute_boxplot<-renderPlot({
     
     ggplot(chem_actual3(), aes(x=Stream_Name, y=value))+geom_boxplot()+theme_bw()+
-      labs(y=input$button_solute3, x="Site")+theme(text = element_text(size = 20))
+      labs(y=input$button_solute3, x="Site")+theme(text = element_text(size = 20), 
+                                                   axis.text.x = element_text(angle = 45, hjust=1))
     
   })
   
@@ -814,9 +1227,10 @@ overview_server <- function(input, output, session){
   
   output$cq_plot<-renderPlot({
     
-    ggplot(cq3(), aes(log(get(input$button_solute4)), log(Qcms), col=Stream_Name))+geom_point()+
-      labs(x="Log Concentration", y="Log Discharge", col="Site")+
+    ggplot(cq3(), aes(log(Qcms), log(get(input$button_solute4)), col=Stream_Name))+geom_point()+
+      labs(x="Log(discharge (m3/s))", y="Log(concentration (mg/L))", col="Site")+
       geom_smooth(se=F, method = "lm")+
+      stat_poly_eq(use_label(c("eq", "R2")), size=7) +
       theme_bw()+theme(text = element_text(size = 20))
     
   })
