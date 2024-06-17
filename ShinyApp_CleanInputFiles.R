@@ -168,25 +168,47 @@ setwd("/Users/keirajohnson/WSC_shiny_app")
 
 save(cq_all_nodups, file="CQAll_ShinyAppCleaned.RDS")
 
-#read in average solute drivers file, this is for the histogram in the data exploration panel
-load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Solute_Drivers_OneCol.RData")
+#read in drivers table
+drivers<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/MapDriversTable2.csv")
+drivers<-drivers[,-c(3,4)]
+drivers_quant<-melt(drivers[c(1,6:15)], id.vars=c("Stream_Name"))
+drivers_color<-melt(drivers[c(1:5)], id.vars = c("Stream_Name"))
+
+solutes<-read.csv("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Mean_Solute_Drivers.csv")
+solutes<-solutes[,c(2,5,6)]
+solutes<-subset(solutes, solutes$Solute %in% c("SRP", "PO4", "DSi", "Ca", "K", "Na", "Mg", "NO3", "NOx"))
+colnames(solutes)<-c("Stream_Name", "variable", "value")
+solutes<-solutes[!duplicated(solutes),]
+
+drivers_quant<-bind_rows(drivers_quant, solutes)
+
+drivers_quant<-drivers_quant %>%
+  mutate(value = case_when(
+    variable=="MedianQ" ~ log(value),
+    variable=="drainSqKm" ~ log(value),
+    .default = value
+  ))
+
+drivers_quant$value[is.infinite(drivers_quant$value)]<-NA
+
+colnames(drivers_quant)<-c("Stream_Name", "Driver", "Mean_Value")
+
+solute_drivers<-drivers_quant
 
 #renmame driver variables to more intuituive names
 #combine NOx/NO3 and SRP/PO4 to N and P, respectively
 solute_drivers<-solute_drivers %>%
   mutate(Driver = case_when(
-    Driver=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver=="MedianQ" ~ "Log(Median Discharge (m3/s))",
     Driver=="npp" ~ "NPP (kgC/m2)",
     Driver=="cycle0" ~ "Green Up Day (day of year)",
-    Driver=="q_95" ~ "95th percentile Discharge (m3/s)",
-    Driver=="q_5" ~ "5th percentile Discharge (m3/s)",
-    Driver=="CV_Q" ~ "Coefficient of Variation in Discharge",
     Driver=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
     Driver=="precip" ~ "Precipitation (mm/year)",
-    Driver=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver=="drainSqKm" ~ "Log(Drainage Area (km2))",
     Driver=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver=="elevation_median_m" ~ "Median Elevation (m)",
+    Driver=="Max_Daylength" ~ "Maximum Daylength (hours)",
     Driver=="temp" ~ "Temperature (deg C)",
-    Driver=="med_q" ~ "Median Discharge (m3/s)",
     Driver=="NO3"~"N",
     Driver=="NOx"~"N",
     Driver=="PO4"~"P",
@@ -211,25 +233,24 @@ setwd("/Users/keirajohnson/WSC_shiny_app")
 
 save(solute_drivers, file="SoluteDrivers_ShinyAppCleaned.RDS")
 
-#read in solute drivers file with three columns, this is for the x-y plot in the data exploration panel
-load("/Users/keirajohnson/Box Sync/Hydrology_Lab/Projects/WSC_ShinyApp/Mean_Solute_Drivers.RData")
+solute_drivers_all<-merge(drivers_quant, drivers_quant, by=c("Stream_Name"))
+solute_drivers_all<-merge(solute_drivers_all, drivers_color, by=c("Stream_Name"))
+colnames(solute_drivers_all)<-c("Stream_Name", "Driver", "Mean_Value", "Driver2", "Mean_Value2", "Driver3", "Mean_Value3")
 
 #renmame driver variables to more intuituive names in Driver column 1
 #combine NOx/NO3 and SRP/PO4 to N and P, respectively
 solute_drivers_all<-solute_drivers_all %>%
   mutate(Driver = case_when(
-    Driver=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver=="MedianQ" ~ "Log(Median Discharge (m3/s))",
     Driver=="npp" ~ "NPP (kgC/m2)",
     Driver=="cycle0" ~ "Green Up Day (day of year)",
-    Driver=="q_95" ~ "95th percentile Discharge (m3/s)",
-    Driver=="q_5" ~ "5th percentile Discharge (m3/s)",
-    Driver=="CV_Q" ~ "Coefficient of Variation in Discharge",
     Driver=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
     Driver=="precip" ~ "Precipitation (mm/year)",
-    Driver=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver=="drainSqKm" ~ "Log(Drainage Area (km2))",
+    Driver=="Max_Daylength" ~ "Maximum Daylength (hours)",
     Driver=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver=="elevation_median_m" ~ "Median Elevation (m)",
     Driver=="temp" ~ "Temperature (deg C)",
-    Driver=="med_q" ~ "Median Discharge (m3/s)",
     Driver=="NO3"~"N",
     Driver=="NOx"~"N",
     Driver=="PO4"~"P",
@@ -254,18 +275,16 @@ solute_drivers_all <- solute_drivers_all %>%
 #combine NOx/NO3 and SRP/PO4 to N and P, respectively
 solute_drivers_all<-solute_drivers_all %>%
   mutate(Driver2 = case_when(
-    Driver2=="mean_q" ~ "Mean Discharge (m3/s)",
+    Driver2=="MedianQ" ~ "Log(Median Discharge (m3/s))",
     Driver2=="npp" ~ "NPP (kgC/m2)",
     Driver2=="cycle0" ~ "Green Up Day (day of year)",
-    Driver2=="q_95" ~ "95th percentile Discharge (m3/s)",
-    Driver2=="q_5" ~ "5th percentile Discharge (m3/s)",
-    Driver2=="CV_Q" ~ "Coefficient of Variation in Discharge",
     Driver2=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
+    Driver2=="Max_Daylength" ~ "Maximum Daylength (hours)",
     Driver2=="precip" ~ "Precipitation (mm/year)",
-    Driver2=="drainSqKm" ~ "Drainage Area (km2)",
+    Driver2=="drainSqKm" ~ "Log(Drainage Area (km2))",
     Driver2=="evapotrans" ~ "Evapotranspiration (kg/m2)",
+    Driver2=="elevation_median_m" ~ "Median Elevation (m)",
     Driver2=="temp" ~ "Temperature (deg C)",
-    Driver2=="med_q" ~ "Median Discharge (m3/s)",
     Driver2=="NO3"~"N",
     Driver2=="NOx"~"N",
     Driver2=="PO4"~"P",
@@ -290,37 +309,14 @@ solute_drivers_all <- solute_drivers_all %>%
 #combine NOx/NO3 and SRP/PO4 to N and P, respectively
 solute_drivers_all<-solute_drivers_all %>%
   mutate(Driver3 = case_when(
-    Driver3=="mean_q" ~ "Mean Discharge (m3/s)",
-    Driver3=="npp" ~ "NPP (kgC/m2)",
-    Driver3=="cycle0" ~ "Green Up Day (day of year)",
-    Driver3=="q_95" ~ "95th percentile Discharge (m3/s)",
-    Driver3=="q_5" ~ "5th percentile Discharge (m3/s)",
-    Driver3=="CV_Q" ~ "Coefficient of Variation in Discharge",
-    Driver3=="prop_area" ~ "Maximum Snow Covered Area (proportion)",
-    Driver3=="precip" ~ "Precipitation (mm/year)",
-    Driver3=="drainSqKm" ~ "Drainage Area (km2)",
-    Driver3=="evapotrans" ~ "Evapotranspiration (kg/m2)",
-    Driver3=="temp" ~ "Temperature (deg C)",
-    Driver3=="med_q" ~ "Median Discharge (m3/s)",
-    Driver3=="NO3"~"N",
-    Driver3=="NOx"~"N",
-    Driver3=="PO4"~"P",
-    Driver3=="SRP"~"P",
+    Driver3=="Observation.Network" ~ "Observation Network",
+    Driver3=="KG.Climate.Zone" ~ "Climate Zone",
+    Driver3=="major_rock" ~ "Dominant Lithology",
+    Driver3=="major_land" ~ "Dominant Land Cover",
     .default = Driver3
   ))
 
-#convert all solutes from uM to mg/L in value column 3
-solute_drivers_all <- solute_drivers_all %>%
-  mutate(Mean_Value3 = case_when(
-    Driver3=="N"~Mean_Value3*14.0067/1000,
-    Driver3=="P"~Mean_Value3*30.973762/1000,
-    Driver3=="Mg"~Mean_Value3*24.30500/1000,
-    Driver3=="Ca"~Mean_Value3*40.0780/1000,
-    Driver3=="K"~Mean_Value3*39.09830/1000,
-    Driver3=="Na"~Mean_Value3*22.989769280/1000,
-    Driver3=="DSi"~Mean_Value3*28.0855/1000,
-    .default = Mean_Value3
-  ))
+solute_drivers_all$Mean_Value3<-ifelse(solute_drivers_all$Mean_Value3=="", NA, solute_drivers_all$Mean_Value3)
 
 setwd("/Users/keirajohnson/WSC_shiny_app")
 
